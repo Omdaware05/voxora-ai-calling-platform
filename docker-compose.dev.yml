@@ -1,0 +1,27 @@
+# Voxora development overrides.
+# Usage:  docker compose -f docker-compose.yml -f docker-compose.dev.yml up --build
+# Backend gets hot-reload; frontend gets Vite dev server.
+
+services:
+  backend:
+    volumes:
+      - ./backend:/code
+    command: >
+      uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+    environment:
+      DEMO_MODE: "true"
+      AUTO_CREATE_TABLES: "false"
+
+  frontend:
+    image: node:24-alpine
+    working_dir: /app
+    entrypoint: ["/bin/sh", "-c"]
+    command: >
+      npm install --no-audit --no-fund && npm run dev -- --host 0.0.0.0 --port 5173
+    environment:
+      VITE_API_URL: http://localhost:8000
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules
+    ports:
+      - "5173:5173"
