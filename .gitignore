@@ -1,0 +1,41 @@
+# Environment & secrets
+.env
+.env.local
+.env.*.local
+!.env.example
+
+# Node / frontend
+node_modules/
+frontend/dist/
+frontend/build/
+frontend/.vite/
+*.tsbuildinfo
+
+# Python / backend
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+backend/.venv/
+.pytest_cache/
+.coverage
+htmlcov/
+*.log
+
+# Databases / local services data
+data/
+*.db
+*.sqlite3
+minio-data/
+pgdata/
+
+# OS / editors
+.DS_Store
+.idea/
+.vscode/
+*.swp
+
+# Misc
+dist/
+build/
