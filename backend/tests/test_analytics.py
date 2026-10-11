@@ -34,7 +34,12 @@ def test_analytics_endpoints_empty(client, admin_b_headers):
     funnel = client.get("/api/v1/analytics/lead-funnel", headers=admin_b_headers).json()["funnel"]
     assert [f["stage"] for f in funnel] == ["NEW", "INTERESTED", "NOT_INTERESTED", "QUALIFIED", "CLOSED"]
     assert all(f["count"] == 0 for f in funnel)
-    assert client.get("/api/v1/usage", headers=admin_b_headers).json() == {"usage": []}
+    assert client.get("/api/v1/usage", headers=admin_b_headers).json() == {
+        "ai_usage_minutes": 0,
+        "est_cost": 0,
+        "calls": 0,
+        "period": "All time",
+    }
 
 
 def test_analytics_overview_with_data(client, admin_headers, make_agent):

@@ -164,42 +164,81 @@ def per_agent(db: Session, tenant_id: int) -> List[Dict[str, Any]]:
         .group_by(models.Agent.id, models.Agent.name)
         .order_by(models.Agent.name)
     ).all()
-    return [
-        {
-            "agent_id": r.id,
-            "agent_name": r.name,
-            "calls": r.calls or 0,
-            "completed": int(r.completed or 0),
-            "avg_duration_sec": round(float(r.avg_duration or 0), 1),
-        }
-        for r in rows
-    ]
+    lead_rows = db.execute(
+        select(models.Lead.agent_id, models.Lead.status, func.count())
+        .where(models.Lead.tenant_id == tenant_id, models.Lead.agent_id.isnot(None))
+        .group_by(models.Lead.agent_id, models.Lead.status)
+    ).all()
+    lead_map = {(r[0], r[1]): r[2] for r in lead_rows}
+    out = []
+    for r in rows:
+        calls = r.calls or 0
+        completed = int(r.completed or 0)
+        out.append(
+            {
+                "agent_id": r.id,
+                "agent_name": r.name,
+                "calls": calls,
+                "completed": completed,
+                "avg_duration_sec": round(float(r.avg_duration or 0), 1),
+                "answer_rate": round(completed / calls, 4) if calls else 0.0,
+                "interested": int(lead_map.get((r.id, "INTERESTED"), 0)),
+                "qualified": int(lead_map.get((r.id, "QUALIFIED"), 0)),
+            }
+        )
+    return out
 
 
 def per_campaign(db: Session, tenant_id: int) -> List[Dict[str, Any]]:
-    rows = db.execute(
-        select(
-            models.Campaign.id,
-            models.Campaign.name,
-            models.Campaign.status,
-            func.count(models.Call.id).label("calls"),
-            func.sum(case((models.Call.status == "COMPLETED", 1), else_=0)).label("completed"),
-        )
-        .outerjoin(models.Call, models.Call.campaign_id == models.Campaign.id)
+    campaigns = db.execute(
+        select(models.Campaign.id, models.Campaign.name, models.Campaign.status)
         .where(models.Campaign.tenant_id == tenant_id)
-        .group_by(models.Campaign.id, models.Campaign.name, models.Campaign.status)
         .order_by(models.Campaign.name)
     ).all()
-    return [
-        {
-            "campaign_id": r.id,
-            "campaign_name": r.name,
-            "status": r.status,
-            "calls": r.calls or 0,
-            "completed": int(r.completed or 0),
-        }
-        for r in rows
-    ]
+
+    call_rows = db.execute(
+        select(models.Call.campaign_id, models.Call.status, func.count())
+        .where(models.Call.tenant_id == tenant_id, models.Call.campaign_id.isnot(None))
+        .group_by(models.Call.campaign_id, models.Call.status)
+    ).all()
+    call_map: Dict[tuple, int] = {(r[0], r[1]): int(r[2]) for r in call_rows}
+
+    contact_rows = db.execute(
+        select(models.CampaignContact.campaign_id, func.count())
+        .join(models.Campaign, models.Campaign.id == models.CampaignContact.campaign_id)
+        .where(models.Campaign.tenant_id == tenant_id)
+        .group_by(models.CampaignContact.campaign_id)
+    ).all()
+    contact_map = {r[0]: int(r[1]) for r in contact_rows}
+
+    lead_rows = db.execute(
+        select(models.Lead.campaign_id, models.Lead.status, func.count())
+        .where(models.Lead.tenant_id == tenant_id, models.Lead.campaign_id.isnot(None))
+        .group_by(models.Lead.campaign_id, models.Lead.status)
+    ).all()
+    lead_map = {(r[0], r[1]): int(r[2]) for r in lead_rows}
+
+    out = []
+    for c in campaigns:
+        counts = {status: n for (cid, status), n in call_map.items() if cid == c.id}
+        calls = sum(counts.values())
+        attempted = sum(n for s, n in counts.items() if s != "INITIATING")
+        answered = counts.get("IN_PROGRESS", 0) + counts.get("COMPLETED", 0)
+        out.append(
+            {
+                "campaign_id": c.id,
+                "campaign_name": c.name,
+                "status": c.status,
+                "calls": calls,
+                "completed": counts.get("COMPLETED", 0),
+                "total": contact_map.get(c.id, 0),
+                "attempted": attempted,
+                "answered": answered,
+                "interested": lead_map.get((c.id, "INTERESTED"), 0),
+                "qualified": lead_map.get((c.id, "QUALIFIED"), 0),
+            }
+        )
+    return out
 
 
 def lead_funnel(db: Session, tenant_id: int) -> List[Dict[str, Any]]:
@@ -215,17 +254,37 @@ def lead_funnel(db: Session, tenant_id: int) -> List[Dict[str, Any]]:
     return out
 
 
-def usage_summary(db: Session, tenant_id: int) -> List[Dict[str, Any]]:
-    rows = db.execute(
-        select(
-            models.UsageEvent.kind,
-            func.coalesce(func.sum(models.UsageEvent.units), 0).label("units"),
-            func.coalesce(func.sum(models.UsageEvent.cost_estimate), 0).label("cost"),
+def usage_summary(db: Session, tenant_id: int) -> Dict[str, Any]:
+    """Tenant-wide usage summary for the Analytics page.
+
+    ai_usage_minutes / est_cost come from recorded UsageEvents (STT/LLM/TTS);
+    calls is the lifetime call count for the tenant.
+    """
+    minutes = (
+        db.scalar(
+            select(func.coalesce(func.sum(models.UsageEvent.units), 0)).where(
+                models.UsageEvent.tenant_id == tenant_id
+            )
         )
-        .where(models.UsageEvent.tenant_id == tenant_id)
-        .group_by(models.UsageEvent.kind)
-    ).all()
-    return [
-        {"kind": r.kind, "units": round(float(r.units), 2), "cost_estimate": round(float(r.cost), 4)}
-        for r in rows
-    ]
+        or 0
+    )
+    cost = (
+        db.scalar(
+            select(func.coalesce(func.sum(models.UsageEvent.cost_estimate), 0)).where(
+                models.UsageEvent.tenant_id == tenant_id
+            )
+        )
+        or 0
+    )
+    calls = (
+        db.scalar(
+            select(func.count()).select_from(models.Call).where(models.Call.tenant_id == tenant_id)
+        )
+        or 0
+    )
+    return {
+        "ai_usage_minutes": round(float(minutes), 2),
+        "est_cost": round(float(cost), 4),
+        "calls": int(calls),
+        "period": "All time",
+    }

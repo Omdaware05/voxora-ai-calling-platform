@@ -31,7 +31,7 @@ export function formatDate(value: string | null | undefined): string {
 
 export function formatPercent(value: number | null | undefined, digits = 1): string {
   if (value == null || !Number.isFinite(value)) return '—'
-  return `${value.toFixed(digits)}%`
+  return `${(value * 100).toFixed(digits)}%`
 }
 
 export function downloadBlob(blob: Blob, filename: string): void {

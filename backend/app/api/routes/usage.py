@@ -14,9 +14,9 @@ from app.services import analytics as analytics_service
 router = APIRouter(tags=["usage"])
 
 
-@router.get("/usage")
+@router.get("/usage", response_model=dict)
 def usage(
     db: Annotated[Session, Depends(get_db)],
     user: Annotated[models.User, Depends(get_current_user)],
 ) -> dict:
-    return {"usage": analytics_service.usage_summary(db, user.tenant_id)}
+    return analytics_service.usage_summary(db, user.tenant_id)

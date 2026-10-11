@@ -152,7 +152,7 @@ read-only ok for VIEWER.
 | GET | `/api/v1/analytics/campaigns` | A | per-campaign breakdown |
 | GET | `/api/v1/analytics/lead-funnel` | A | |
 | GET | `/api/v1/analytics/usage` | A | |
-| GET | `/api/v1/usage` | A | `{"usage": {...}}` summary |
+| GET | `/api/v1/usage` | A | `{"ai_usage_minutes", "est_cost", "calls", "period"}` summary |
 
 ## WebSocket protocol
 
